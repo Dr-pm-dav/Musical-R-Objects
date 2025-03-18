@@ -1,0 +1,155 @@
+---
+title: "Music Recommendation with Association Rule Mining"
+author: "Stefani DW Yates"
+date: "2025-03-9"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    theme: cerulean
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE)
+```
+
+# Introduction
+
+Online radio platforms track user listening behavior to suggest music.
+We apply association rule mining using Apriori to uncover patterns in a Last.fm dataset.
+
+```{r load_libraries}
+library(arules)
+library(tidyverse)
+library(Matrix)
+library(arulesViz)
+library(igraph)
+library(viridis)
+library(knitr)
+library(ggplot2)
+```
+
+## Load and Explore Dataset
+```{r EDA}
+file_path_main <- "C:/Users/stefa/OneDrive - Careered - CTU/2025/CS871/Week 9/lastfm-dataset-360K/lastfm-dataset-360K/usersha1-artmbid-artname-plays.tsv"
+file_path_profile <- "C:/Users/stefa/OneDrive - Careered - CTU/2025/CS871/Week 9/lastfm-dataset-360K/lastfm-dataset-360K/usersha1-profile.tsv"
+
+data_main <- read.delim(file_path_main, header = FALSE, sep = "\t", quote = "", fill = TRUE, stringsAsFactors = FALSE)
+data_profile <- read.delim(file_path_profile, header = FALSE, sep = "\t", quote = "", fill = TRUE, stringsAsFactors = FALSE)
+
+colnames(data_main) <- c("user_id", "artist_id", "artist_name", "plays")
+colnames(data_profile) <- c("user_id", "gender", "age", "country", "signup_date")
+```
+
+### Summary Statistics
+```{r summary_stats}
+str(data_main)
+str(data_profile)
+```
+```{r missing_values}
+sum(is.na(data_main))
+sum(is.na(data_profile))
+```
+
+### Top 10 Artists
+```{r top10, fig.align="center", fig.width=8}
+top_artists <- data_main %>%
+  group_by(artist_name) %>%
+  summarise(total_plays = sum(plays)) %>%
+  arrange(desc(total_plays)) %>%
+  slice_head(n = 10)
+
+kable(top_artists)
+```
+
+## Data Preprocessing
+### All Artists
+```{r 104}
+top_104_artists <- data_main %>%
+  group_by(artist_name) %>%
+  summarise(total_plays = sum(plays)) %>%
+  arrange(desc(total_plays)) %>%
+  slice_head(n = 104) %>%
+  pull(artist_name)
+
+filtered_data <- data_main %>%
+  filter(artist_name %in% top_104_artists) %>%
+  mutate(value = 1) %>%
+  select(user_id, artist_name, value)
+```
+
+### Matrix Conversion
+```{r artist_matrix}
+user_artist_matrix <- filtered_data %>%
+  pivot_wider(names_from = artist_name, values_from = value, values_fill = list(value = 0)) %>%
+  select(-user_id) %>%
+  as.matrix()
+
+# Convert to transactions
+user_artist_matrix[user_artist_matrix > 1] <- 1  
+trans <- as(user_artist_matrix, "transactions")
+
+summary(trans)
+```
+
+## Rule Mining
+### Applying *a priori* Algorithm
+```{r rules}
+rules <- apriori(trans, parameter = list(supp = 0.005, conf = 0.5, minlen = 2))
+
+# View top 10 rules
+inspect(sort(rules, by = "lift")[1:10])
+```
+
+## Visualizations
+### Top 50 Rules Cluster Graph
+```{r cluster50, fig.align="center", fig.width=10, fig.height=8}
+subrules_50 <- head(sort(rules, by = "lift"), 50)
+rules_graph <- plot(subrules_50, method = "graph", engine = "igraph", plot = FALSE)
+
+plot(rules_graph,
+     layout = layout_with_fr(rules_graph),
+     vertex.size = 8,
+     vertex.label.cex = 1.2,
+     vertex.label.color = "black",
+     edge.arrow.size = 0.5)
+```
+
+## Scatter Plot of All Rules
+```{r scatter, fig.align="center", fig.width=12, fig.height=8}
+rules_large <- apriori(trans, parameter = list(supp = 0.003, conf = 0.6, minlen = 2, maxlen = 5))
+scatterplot_rules <- subset(rules_large, lift >= 3 & confidence >= 0.7)
+
+plot(scatterplot_rules, method = "scatterplot", measure = c("support", "lift"), shading = "confidence")
+```
+
+## Matrix Plot
+```{r matrix, fig.align="center", fig.width=12, fig.height=8}
+plot(subrules_50, method = "matrix", measure = "lift", 
+     control = list(reorder = "support/confidence", col = viridis::mako(2.5)))
+```
+
+## Grouped Plot
+```{r grouped, fig.align="center", fig.width=12, fig.height=8}
+plot(subrules_50, method = "grouped", control = list(col = hcl.colors(5, "Blues")))
+```
+
+## Summary
+
+✔ Successfully processed Last.fm dataset (360K users, 17M records).
+
+✔ Built a user-artist matrix for association rule mining.
+
+✔ Discovered artist relationships using Apriori.
+
+✔ Visualized results with cluster graphs, scatter plots, and matrix views.
+
+----------------------------------------------------------------------
+### References
+
+Celma, O. (2009). *Music recommendation datasets for research.* Universitat Pompeu Fabra. http://www.dtic.upf.edu/~ocelma/MusicRecommendationDataset/lastfm-360K.html
+
+Csardi, G., & Nepusz, T. (2023). *The igraph software package for complex network research*. InterJournal, Complex Systems, [Version info]. https://igraph.org
+
+Hahsler, M., Gruen, B., & Hornik, K. (2023). *arules: Mining Association Rules and Frequent Itemsets*. R package version [Version info]. https://CRAN.R-project.org/package=arules
